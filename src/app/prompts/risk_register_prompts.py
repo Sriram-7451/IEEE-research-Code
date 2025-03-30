@@ -1,137 +1,200 @@
-import os
-from dotenv import load_dotenv, find_dotenv
-load_dotenv(find_dotenv())
+from langchain_core.prompts import ChatPromptTemplate
 
-import gradio as gr
-import pandas as pd
-from openai import OpenAI
-from lxml import etree
-from prompts import rr_prompt as prompt
+example_1 = """
+Human:
 
-# Initialize OpenAI client
-client = OpenAI()
+Please connect the following assets:
+<Assets>
+  <Asset>
+    <index>0</index>
+    <asset_name>Web Server Infrastructure</asset_name>
+    <business_impact>1</business_impact>
+    <description>Hosts the company’s web application, serving as the primary point of interaction with users. Critical for service availability and directly impacts revenue and customer trust.</description>
+  </Asset>
+  <Asset>
+    <index>1</index>
+    <asset_name>Customer Database</asset_name>
+    <business_impact>2</business_impact>
+    <description>Contains sensitive customer information including personal data, payment details, and transaction history. Its integrity, confidentiality, and availability are paramount for compliance, trust, and operational continuity.</description>
+  </Asset>
+  <Asset>
+    <index>2</index>
+    <asset_name>Logging and Monitoring Systems</asset_name>
+    <business_impact>2</business_impact>
+    <description>Collects and analyzes logs from various systems for monitoring performance, detecting anomalies, and facilitating incident response. Critical for operational awareness and security.</description>
+  </Asset>
+  <Asset>
+    <index>3</index>
+    <asset_name>Development and Testing Environments</asset_name>
+    <business_impact>1</business_impact>
+    <description>Used by the development team for building and testing new features and updates before they are deployed to the production environment. Important for maintaining the pace of innovation while ensuring application stability and security.</description>
+  </Asset>
+</Assets>
+to the following scenarios:
+<Scenarios>
+  <Scenario>
+    <index>0</index>
+    <risk_scenario_name>DDoS Attack on Service Infrastructure</risk_scenario_name>
+    <likelihood>2</likelihood>
+    <description>An attacker targets the company's service infrastructure with a Distributed Denial of Service (DDoS) attack, overwhelming the servers with traffic and making the service unavailable to legitimate users.</description>
+  </Scenario>
+  <Scenario>
+    <index>1</index>
+    <risk_scenario_name>Data Breach Through Phishing Attack</risk_scenario_name>
+    <likelihood>3</likelihood>
+    <description>An attacker successfully deceives an employee into revealing their credentials through a phishing email. The attacker gains unauthorized access to sensitive data stored on the company’s network.</description>
+  </Scenario>
+  <Scenario>
+    <index>2</index>
+    <risk_scenario_name>Ransomware Infection</risk_scenario_name>
+    <likelihood>2</likelihood>
+    <description>Malicious software encrypts critical data and systems, rendering them unusable. The attacker demands a ransom payment for the decryption key. This scenario can disrupt operations and lead to data loss if backups are also compromised.</description>
+  </Scenario>
+  <Scenario>
+    <index>3</index>
+    <risk_scenario_name>Third-Party Service Failure</risk_scenario_name>
+    <likelihood>3</likelihood>
+    <description>A critical third-party service provider experiences a failure or security breach, impacting the company’s ability to offer its digital service, either through direct service disruption or through a breach of data shared with the third party.</description>
+  </Scenario>
+</Scenarios>
+Please output the result in requested schema.
 
-# Configuration
-LLM_TEMPERATURE = 0.0
-LLM_MODEL_ID = 'gpt-4'
-LLM_MAX_OUT_TOKENS = 4000  # Increased to accommodate solutions
-MAX_ASSETS = 5
-MAX_SCENARIOS = 5
+Assistant:
 
-def load_csv_data(input_file: str) -> gr.Dataframe:
-    input_file = input_file.name
-    print(f'Opening CSV: {input_file}')
-    df = pd.read_csv(input_file)
-    return df
-
-def generate_rr(assets: pd.DataFrame, scenarios: pd.DataFrame) -> gr.Dataframe:
-    # Limit input size
-    assets = assets.head(MAX_ASSETS)
-    scenarios = scenarios.head(MAX_SCENARIOS)
-    
-    rules = """
-    1. Only output requested schema with solutions
-    2. For each risk, provide one technical and one administrative solution
-    3. Solutions should be practical and cost-effective
+<result>
+  <thinking>
+    <step num="1">
+      Web Server Infrastructure - DDoS Attack on Service Infrastructure (relevant because a DDoS attack directly targets and impacts web server infrastructure)
+      Customer Database - Data Breach Through Phishing Attack (relevant because a phishing attack could expose credentials and enable unauthorized access to customer data) 
+      Customer Database - Ransomware Infection (relevant because ransomware could encrypt and disrupt access to customer data)
+      Logging and Monitoring Systems - Third-Party Service Failure (relevant because monitoring systems are needed to detect failures in third-party services)
+    </step>
+    <step num="2">
+      Web Server Infrastructure - DDoS Attack on Service Infrastructure: 3 (1+2)
+      Customer Database - Data Breach Through Phishing Attack: 4 (1+3)
+      Customer Database - Ransomware Infection: 3 (1+2)
+      Logging and Monitoring Systems - Third-Party Service Failure: 5 (2+3)
+    </step>
+  </thinking>
+<risks>
+  <risk num="1">
+    <asset>Web Server Infrastructure</asset> 
+    <scenario>DDoS Attack on Service Infrastructure</scenario>
+    <risk_score>5</risk_score>
+  </risk>  
+  <risk num="2">
+    <asset>Customer Database</asset>
+    <scenario>Data Breach Through Phishing Attack</scenario>
+    <risk_score>6</risk_score>
+  </risk>
+  <risk num="3">
+    <asset>Customer Database</asset>
+    <scenario>Ransomware Infection</scenario>
+    <risk_score>5</risk_score>
+  </risk>  
+  <risk num="4">
+    <asset>Logging and Monitoring Systems</asset>
+    <scenario>Third-Party Service Failure</scenario>
+    <risk_score>5</risk_score>
+  </risk>
+</risks>  
+</result>
     """
 
-    # Prepare inputs for the prompt
-    chain_input = {
-        'rules': rules,
-        'assets': assets.to_xml(root_name='Assets', row_name='Asset', xml_declaration=False),
-        'scenarios': scenarios.to_xml(root_name='Scenarios', row_name='Scenario', xml_declaration=False)
-    }
+system_str_f = """
+You are an IT risk management expert. You are being asked to perform various 
+tasks related to  organizational IT security risk management. 
 
-    try:
-        # Call OpenAI API
-        response = client.chat.completions.create(
-            model=LLM_MODEL_ID,
-            messages=[
-                {"role": "system", "content": prompt.format_messages(**chain_input)[0].content},
-                {"role": "user", "content": prompt.format_messages(**chain_input)[1].content}
-            ],
-            temperature=LLM_TEMPERATURE,
-            max_tokens=LLM_MAX_OUT_TOKENS
-        )
+You are brief and to the point. You are good at following instructions and 
+providing clear and concise information. 
 
-        xml_output = response.choices[0].message.content
-        print("LLM Output:", xml_output)
-        
-        # Parse XML output
-        root = etree.fromstring(xml_output)
-        risks = []
-        
-        for risk in root.xpath("//risk"):
-            risk_data = {
-                "asset": risk.find("asset").text,
-                "scenario": risk.find("scenario").text,
-                "risk_score": int(risk.find("risk_score").text),
-                "solution": risk.find("solution").text if risk.find("solution") is not None else "No solution provided"
-            }
-            risks.append(risk_data)
-            
-        return pd.DataFrame(risks)
-        
-    except Exception as e:
-        print(f"Error: {e}")
-        return pd.DataFrame(columns=["asset", "scenario", "risk_score", "solution"])
+Here are some additional important rules for you:
+<rules>
+{rules}
+</rules>
 
-# Gradio UI with solutions display
-with gr.Blocks() as app:
-    with gr.Row():
-        with gr.Accordion(open=False, label='Assets'):
-            with gr.Row():
-                rr_input_r_assets_f = gr.File(file_types=['.csv', '.xlsx', '.xls'])
-            with gr.Row():
-                rr_input_r_assets_load_btn = gr.Button('Load assets (CSV)')
-            with gr.Row():
-                rr_input_r_assets_inv = gr.Dataframe(label='Asset Inventory')
-    with gr.Row():
-        with gr.Accordion(open=False, label='Risk Scenarios'):
-            with gr.Row():
-                rr_input_r_scenarios_f = gr.File(file_types=['.csv', '.xlsx', '.xls'])
-            with gr.Row():
-                rr_input_r_scenarios_load_btn = gr.Button('Load risk scenarios (CSV)')
-            with gr.Row():
-                rr_input_r_scenarios_reg = gr.Dataframe(label='Risk Scenarios Register')
-    with gr.Row():
-        rr_create_btn = gr.Button('Create Risk Register')
-    with gr.Row():
-        rr_output = gr.Dataframe(
-            label='Generated Risk Register',
-            headers=["Asset", "Scenario", "Risk Score", "Recommended Solutions"],
-            datatype=["str", "str", "number", "str"]
-        )
-    with gr.Row():
-        with gr.Accordion("Detailed Solutions", open=False):
-            rr_solutions = gr.DataFrame(
-                label="Mitigation Strategies",
-                headers=["Asset", "Solutions"],
-                datatype=["str", "str"]
-            )
+The current task is about creating a risk register. A risk register is a
+document that contains information about the risks that an organization faces. 
+It consists of a list of risks and their associated metadata. 
 
-    # UI Logic
-    rr_input_r_assets_load_btn.click(
-        fn=load_csv_data, 
-        inputs=[rr_input_r_assets_f], 
-        outputs=[rr_input_r_assets_inv]
-    )
-    
-    rr_input_r_scenarios_load_btn.click(
-        fn=load_csv_data, 
-        inputs=[rr_input_r_scenarios_f], 
-        outputs=[rr_input_r_scenarios_reg]
-    )
-    
-    def update_ui(assets, scenarios):
-        df = generate_rr(assets, scenarios)
-        solutions_df = df[["asset", "solution"]]
-        return df, solutions_df
-    
-    rr_create_btn.click(
-        fn=update_ui, 
-        inputs=[rr_input_r_assets_inv, rr_input_r_scenarios_reg], 
-        outputs=[rr_output, rr_solutions]
-    )
+Each risk is constructed based on the connection between an asset and a scenario.
+The risk score is calculated for each connection based on the formula:
+Risk = Probability + Impact
 
-app.launch(server_name='0.0.0.0', server_port=8080)
+Your task is to only connect the assets to the scenarios that together form 
+a meaningful risk and avoid connecting assets to scenarios that are not relevant.
+
+For example, combination of an asset "Server" and a scenario "Server Downtime" 
+is meaningful, but combination of an asset "Backup" and a scenario "Server Downtime"
+does not make sense.
+
+Your second task is to calculate the risk score for each connection that you create.
+
+Below are examples of the task execution:
+<examples>
+  <example num="1">
+{example_1}
+  </example>
+</examples>
+
+Please execute and document the following thinking steps:
+<thinking_steps>
+  <step num="1">
+    For each asset, connect it to the relevant scenarios. Write down the selected
+    connections with the short explanation of why the connection is meaningful.
+  </step>
+  <step num="2">
+    For each connection, calculate the risk score based on the requested formula.
+  </step>
+</thinking_steps>
+
+Please output the result in the following schema:
+```
+<result>
+<thinking>
+  <step num="1">
+    Your notes for step 1
+  </step>
+  <step num="2">
+    Your notes for step 2
+  </step>
+</thinking>
+<risks>
+  <risk num="1">
+    <asset>Sample asset 1</asset>
+    <scenario>Sample scenario 1</scenario>
+    <risk_score>3</risk_score>
+  </risk>
+    <asset>Sample asset 2</asset>
+    <scenario>Sample scenario 2</scenario>
+    <risk_score>4</risk_score>
+  <risk num="2">
+  </risk>
+    <asset>Sample asset 3</asset>
+    <scenario>Sample scenario 3</scenario>
+    <risk_score>1</risk_score>
+  <risk num="3">
+  </risk>
+  ... // more risks
+</risks>
+</result>
+```
+    """
+
+system_str = system_str_f.format(
+    rules='{rules}', 
+    example_1=example_1)
+
+human_str = """
+Please connect the following assets:
+{assets}
+to the following scenarios:
+{scenarios}
+Please output the result in requested schema.
+    """
+  
+rr_prompt = ChatPromptTemplate.from_messages([
+    ("system", system_str),
+    ("human", human_str)
+])
+
